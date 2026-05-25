@@ -176,7 +176,7 @@ const ENEMY_TYPES = [
   { type: 'vespa',   img: () => vespaImg,   w: 48, h: 76, speedMult: 1.0, points: 10, hits: 1, minLevel: 1, weight: 6 },
   { type: 'florett', img: () => florettImg, w: 32, h: 52, speedMult: 1.4, points: 15, hits: 1, minLevel: 3, weight: 5 },
   { type: 'ks50',    img: () => ks50Img,    w: 36, h: 58, speedMult: 1.1, points: 20, hits: 1, minLevel: 5, weight: 4 },
-  { type: 'kaefer',  img: () => kaeferImg,  w: 64, h: 44, speedMult: 0.6, points: 40, hits: 2, minLevel: 7, weight: 2 },
+  { type: 'kaefer',  img: () => kaeferImg,  w: 64, h: 44, speedMult: 0.6, points: 40, hits: 3, minLevel: 7, weight: 2 },
 ];
 
 // ---- Design tokens ----
@@ -259,7 +259,7 @@ let sign = { active: false, city: '', sw: 0, x: 0, y: 0, phase: 'idle', phaseTim
 // ---- Power-ups ----
 let powerups          = [];
 let powerupSpawnTimer = 0;
-let powerupInterval = 5500;
+let powerupInterval = 6500;
 let speedBoostTimer   = 0;
 let akkuCount         = 0;
 let akkuTimer         = 0;
@@ -589,10 +589,10 @@ function update(ts) {
   diffTimer += dt * 1000;
   if (diffTimer >= 10000) {
     diffTimer = 0;
-    spawnInterval   = Math.max(750, spawnInterval - 170);
+    spawnInterval   = Math.max(400, spawnInterval - 140);
     enemyBaseSpeed  = Math.min(380, enemyBaseSpeed + 12);
     player.speed    = Math.min(480, player.speed + 8);
-    powerupInterval = Math.max(2500, powerupInterval - 300);
+    powerupInterval = Math.max(3000, powerupInterval - 250);
   }
 
   // ---- Level check ----
@@ -806,7 +806,7 @@ function drawEnemy(e) {
     ctx.textBaseline = 'alphabetic';
   }
 
-  if (e.type === 'kaefer' && e.hitsLeft === 1 && !e.electrified) {
+  if (e.type === 'kaefer' && e.hitsLeft < 3 && !e.electrified) {
     ctx.globalAlpha = 0.35 + 0.3 * Math.sin(Date.now() / 80);
     ctx.fillStyle = '#ff4444';
     ctx.fillRect(-e.w / 2, -e.h / 2, e.w, e.h);
@@ -1448,7 +1448,7 @@ function drawPauseOverlay() {
     ['VESPA',   'Standard'],
     ['FLORETT', 'Schnell & klein'],
     ['KS 50',   'Zickzack-Bewegung'],
-    ['KÄFER',   '2 Treffer nötig'],
+    ['KÄFER',   '3 Treffer nötig'],
   ].forEach(([k, v]) => { row(k, v, y); y += 20; });
   y += 8; divider(y); y += 20;
 
