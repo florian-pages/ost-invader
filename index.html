@@ -459,6 +459,12 @@ canvas.addEventListener('touchcancel', e => {
   resetTouchState();
 }, { passive: false });
 
+// Chrome gewährt User Activation erst bei touchend, nicht touchstart.
+// Falls bgmPlay() im touchstart scheiterte, hier nachholen.
+canvas.addEventListener('touchend', () => {
+  if (state === 'playing' && bgm.paused) bgmPlay();
+}, { passive: true });
+
 
 function startGame() {
   state = 'playing';
