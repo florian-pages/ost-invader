@@ -341,7 +341,7 @@ document.addEventListener('keyup', e => {
       const cx = player.x + player.w / 2 - 7;
       bullets.push({ x: cx, y: player.y, w: 14, h: 28, electro: true });
     } else {
-      const totalBolts = akkuCount + 1;
+      const totalBolts = Math.min(akkuCount + 1, 4);
       const spread = 18;
       const boltX0 = player.x + player.w / 2 - ((totalBolts - 1) * spread) / 2 - 5;
       for (let b = 0; b < totalBolts; b++)
@@ -443,7 +443,7 @@ canvas.addEventListener('touchend', e => {
           const cx = player.x + player.w / 2 - 7;
           bullets.push({ x: cx, y: player.y, w: 14, h: 28, electro: true });
         } else {
-          const totalBolts = akkuCount + 1;
+          const totalBolts = Math.min(akkuCount + 1, 4);
           const spread = 18;
           const boltX0 = player.x + player.w / 2 - ((totalBolts - 1) * spread) / 2 - 5;
           for (let b = 0; b < totalBolts; b++)
