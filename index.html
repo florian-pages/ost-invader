@@ -1,34 +1,139 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#050505">
   <title>Ost Invader</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; }
     body {
       background: #050505;
       display: flex;
       justify-content: center;
       align-items: center;
       height: 100vh;
+      height: 100dvh;
       overflow: hidden;
+      overscroll-behavior: none;
+      touch-action: none;
       font-family: 'Inter', 'Helvetica Now', Helvetica, Arial, sans-serif;
+      position: relative;
     }
     canvas {
       display: block;
       image-rendering: pixelated;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
     }
+    #nameOverlay {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(5,5,5,0.97);
+      border: 1px solid #e4b854;
+      padding: 32px 36px;
+      text-align: center;
+      font-family: 'Inter', Helvetica, Arial, sans-serif;
+      color: #e4e4e4;
+      z-index: 10;
+      width: 300px;
+      box-sizing: border-box;
+    }
+    #nameOverlay .ol-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      color: #e4b854;
+      margin-bottom: 6px;
+    }
+    #nameOverlay .ol-score {
+      font-size: 38px;
+      font-weight: 700;
+      color: #e4b854;
+      margin-bottom: 14px;
+    }
+    #nameOverlay .ol-hint {
+      font-size: 13px;
+      color: rgba(228,228,228,0.7);
+      margin-bottom: 16px;
+    }
+    #nameInput {
+      width: 100%;
+      background: #111;
+      border: 1px solid #505050;
+      color: #e4e4e4;
+      font-family: 'Inter', Helvetica, Arial, sans-serif;
+      font-size: 16px;
+      padding: 10px 12px;
+      text-align: center;
+      outline: none;
+      margin-bottom: 12px;
+      box-sizing: border-box;
+    }
+    #nameInput:focus { border-color: #e4b854; }
+    .ol-btn {
+      background: none;
+      border: 1px solid #e4b854;
+      color: #e4b854;
+      font-family: 'Inter', Helvetica, Arial, sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      padding: 9px 18px;
+      cursor: pointer;
+      margin: 3px;
+    }
+    .ol-btn:hover { background: rgba(228,184,84,0.1); }
+    .ol-btn.dim { border-color: #383838; color: #505050; }
+    .ol-btn.dim:hover { background: rgba(80,80,80,0.1); }
   </style>
 </head>
 <body>
 <canvas id="game" width="500" height="700"></canvas>
+<div id="nameOverlay">
+  <p class="ol-label">DEIN SCORE</p>
+  <p class="ol-score" id="overlayScore">00000</p>
+  <p class="ol-hint">Trag dich in die Bestenliste ein!</p>
+  <input type="text" id="nameInput" maxlength="20" placeholder="Dein Name..." autocomplete="off" spellcheck="false">
+  <button class="ol-btn" id="submitBtn">EINTRAGEN</button>
+  <button class="ol-btn dim" id="skipBtn">ÜBERSPRINGEN</button>
+</div>
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const W = canvas.width;
 const H = canvas.height;
+
+// ---- Mobile Detection & Canvas Scaling ----
+let isMobile = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+let canvasScale = 1;
+
+function resizeCanvas() {
+  const dpr      = window.devicePixelRatio || 1;
+  const scaleCSS = Math.min(window.innerWidth / W, window.innerHeight / H);
+  const cssW = Math.floor(W * scaleCSS);
+  const cssH = Math.floor(H * scaleCSS);
+  canvas.style.width  = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  const physW = Math.round(cssW * dpr);
+  const physH = Math.round(cssH * dpr);
+  if (canvas.width !== physW || canvas.height !== physH) {
+    canvas.width  = physW;
+    canvas.height = physH;
+  }
+  canvasScale = scaleCSS * dpr;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
 
 // ---- Sprite images ----
 const schwalbeImg = new Image();
@@ -45,7 +150,6 @@ kaeferImg.src   = 'kaefer.png';
 mapImg.src      = 'map.png';
 
 // ---- Minimap: Stadtkoordinaten als Bruchteil der Bildgrosse ----
-// Werte geschätzt anhand der Punktpositionen auf map.png
 const CITY_MAP_POS = {
   'Ost-Berlin':                 [0.67, 0.42],
   'Potsdam':                    [0.53, 0.48],
@@ -64,11 +168,10 @@ const CITY_MAP_POS = {
   'Neubrandenburg':             [0.72, 0.20],
 };
 
-const MM_X = 8, MM_Y = 8;    // Position oben links
-const MM_W = 118, MM_H = 126; // Grosse der Minimap
+const MM_X = 8, MM_Y = 8;
+const MM_W = 118, MM_H = 126;
 
 // ---- Enemy types ----
-// type, img, w, h, speedMult, points, hits, minLevel, weight
 const ENEMY_TYPES = [
   { type: 'vespa',   img: () => vespaImg,   w: 48, h: 76, speedMult: 1.0, points: 10, hits: 1, minLevel: 1, weight: 6 },
   { type: 'florett', img: () => florettImg, w: 32, h: 52, speedMult: 1.4, points: 15, hits: 1, minLevel: 3, weight: 5 },
@@ -87,7 +190,7 @@ const C = {
 };
 
 // ---- State ----
-let state = 'start'; // 'start' | 'playing' | 'paused' | 'over'
+let state = 'start'; // 'start' | 'playing' | 'paused' | 'over' | 'nameInput' | 'leaderboard'
 let score = 0;
 let highScore = 0;
 
@@ -107,6 +210,21 @@ let bullets = [];
 let enemies = [];
 let particles = [];
 
+// ---- Touch Controls ----
+const BTN_Y         = H - 85;
+const BTN_H         = 80;
+const JOYSTICK_SPLIT = W / 2; // grenze feuer | joystick (je eine Hälfte)
+const JOYSTICK_MAX_R = 40;
+function getPlayerMaxY()   { return isMobile ? BTN_Y - player.h - 5  : H - player.h; }
+function getPlayerStartY() { return isMobile ? BTN_Y - player.h - 20 : H - 90; }
+
+let joystickActive  = false;
+let joystickTouchId = -1;
+let joystickBase    = { x: 0, y: 0 };
+let joystickKnob    = { x: 0, y: 0 };
+let touchFiring     = false;
+let fireTouchId     = -1;
+
 let roadMarks = [];
 for (let i = 0; i < 12; i++) roadMarks.push({ y: i * 65 });
 
@@ -120,7 +238,7 @@ const eastGermanCities = [
   'Ost-Berlin',
   'Potsdam',
   'Frankfurt (Oder)',
-  'Eisenh\u00fcttenstadt',
+  'Eisenhüttenstadt',
   'Cottbus',
   'Dresden',
   'Chemnitz / Karl-Marx-Stadt',
@@ -141,18 +259,18 @@ let sign = { active: false, city: '', sw: 0, x: 0, y: 0, phase: 'idle', phaseTim
 // ---- Power-ups ----
 let powerups          = [];
 let powerupSpawnTimer = 0;
-const POWERUP_INTERVAL = 8500;  // alle ~8.5s spawnt ein Power-up
-let speedBoostTimer   = 0;      // ms verbleibend (Mid50)
-let akkuCount         = 0;      // aktive Zusatzakkus
-let akkuTimer         = 0;      // ms verbleibend (Zusatzakku)
+const POWERUP_INTERVAL = 8500;
+let speedBoostTimer   = 0;
+let akkuCount         = 0;
+let akkuTimer         = 0;
 
 // ---- Runden-Bonus ----
-let roundBonus   = null;  // { round, timer, totalTime }
-let elektroBonus = null;  // { count, timer, totalTime }
-let elektroCount = 0;  // elektrifizierte Fahrzeuge diese Runde
+let roundBonus   = null;
+let elektroBonus = null;
+let elektroCount = 0;
 
 // ---- Eindringling ----
-let eindringlingMessages = [];  // { x, y, timer, alpha }
+let eindringlingMessages = [];
 
 // ---- Game-Over-Sprüche ----
 const GAME_OVER_QUOTES = [
@@ -169,10 +287,20 @@ const GAME_OVER_QUOTES = [
   'Schönen Gruß vom Klassenfeind!',
 ];
 let gameOverQuote = '';
+let gameOverSel       = 0;  // 0 = BESTENLISTE, 1 = NEUSTART
+let gameOverMenuBaseY = 0;  // wird in drawGameOver() gesetzt (für Touch-Hitboxen)
+
+// ---- Leaderboard ----
+const SUPABASE_URL = 'https://unhtnkauhzcmmekgoioc.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_qF9y66gW246XvAYxG8ltFQ_VK9XesiG';
+let leaderboardData  = [];
+let playerRank       = -1;
+let playerFinalScore = 0;
+let playerFinalName  = '';
 
 // ---- Elektro-Schuss ----
-let chargeStart = null;         // Timestamp wann Space gedrückt wurde
-const CHARGE_TIME = 600;        // ms bis Elektro-Schuss bereit
+let chargeStart = null;
+const CHARGE_TIME = 600;
 
 // ---- Audio ----
 const bgm = new Audio('bgm.mp3');
@@ -181,15 +309,22 @@ bgm.volume = 0.5;
 function bgmPlay()  { bgm.play().catch(() => {}); }
 function bgmPause() { bgm.pause(); }
 
-// ---- Input ----
+// ---- Input (Keyboard) ----
 const keys = {};
 document.addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'Space' && state === 'start') { startGame(); return; }
-  if (e.code === 'Enter' && state === 'over')  { startGame(); return; }
+  if ((e.code === 'ArrowUp' || e.code === 'ArrowDown') && state === 'over') {
+    gameOverSel = gameOverSel === 0 ? 1 : 0;
+    e.preventDefault(); return;
+  }
+  if (e.code === 'Enter' && state === 'over') {
+    if (gameOverSel === 0) showNameInput(); else startGame(); return;
+  }
+  if ((e.code === 'Enter' || e.code === 'Space') && state === 'leaderboard') { startGame(); return; }
   if (e.code === 'KeyP' && state === 'playing') { state = 'paused'; bgmPause(); }
   else if (e.code === 'KeyP' && state === 'paused') { state = 'playing'; bgmPlay(); }
-  if (e.code === 'Space') e.preventDefault();
+  if (e.code === 'Space' && state !== 'nameInput') e.preventDefault();
   if (e.code === 'KeyP')  e.preventDefault();
 });
 document.addEventListener('keydown', e => {
@@ -203,11 +338,9 @@ document.addEventListener('keyup', e => {
     const held = performance.now() - chargeStart;
     chargeStart = null;
     if (held >= CHARGE_TIME) {
-      // Elektro-Schuss
       const cx = player.x + player.w / 2 - 7;
       bullets.push({ x: cx, y: player.y, w: 14, h: 28, electro: true });
     } else {
-      // Normaler Schuss beim Loslassen
       const totalBolts = akkuCount + 1;
       const spread = 18;
       const boltX0 = player.x + player.w / 2 - ((totalBolts - 1) * spread) / 2 - 5;
@@ -217,12 +350,121 @@ document.addEventListener('keyup', e => {
   }
 });
 
+// ---- Input (Touch) ----
+function screenToCanvas(cx, cy) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (cx - rect.left) * (W / rect.width),
+    y: (cy - rect.top)  * (H / rect.height),
+  };
+}
+
+function resetTouchState() {
+  joystickActive = false; joystickTouchId = -1;
+  joystickBase   = { x: 0, y: 0 };
+  joystickKnob   = { x: 0, y: 0 };
+  touchFiring = false; fireTouchId = -1;
+  chargeStart = null;
+}
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  isMobile = true;
+  for (const t of e.changedTouches) {
+    const p = screenToCanvas(t.clientX, t.clientY);
+
+    if (state === 'start' || state === 'leaderboard') { startGame(); return; }
+    if (state === 'over') {
+      for (let i = 0; i < 2; i++) {
+        const itemY = gameOverMenuBaseY + 34 + i * 34;
+        if (Math.abs(p.y - itemY) < 24) {
+          gameOverSel = i;
+          if (i === 0) showNameInput(); else startGame();
+          return;
+        }
+      }
+      return;
+    }
+    if (state === 'paused')  { state = 'playing'; bgmPlay(); return; }
+    if (state === 'nameInput') return;
+
+    // Pause-Button (oben rechts, wo [P] Pause steht)
+    if (p.y < 90 && p.x > W - 80) {
+      state = 'paused'; bgmPause(); return;
+    }
+
+    // Steuerzone (unterer Bereich inkl. etwas Puffer nach oben)
+    if (p.y >= BTN_Y - 30) {
+      if (p.x < JOYSTICK_SPLIT) {
+        fireTouchId = t.identifier; touchFiring = true;
+        if (chargeStart === null) chargeStart = performance.now();
+      } else {
+        joystickTouchId = t.identifier;
+        joystickActive  = true;
+        joystickBase    = { x: p.x, y: p.y };
+        joystickKnob    = { x: p.x, y: p.y };
+      }
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (t.identifier !== joystickTouchId) continue;
+    const p  = screenToCanvas(t.clientX, t.clientY);
+    const dx = p.x - joystickBase.x;
+    const dy = p.y - joystickBase.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist <= JOYSTICK_MAX_R) {
+      joystickKnob = { x: p.x, y: p.y };
+    } else {
+      joystickKnob = {
+        x: joystickBase.x + (dx / dist) * JOYSTICK_MAX_R,
+        y: joystickBase.y + (dy / dist) * JOYSTICK_MAX_R,
+      };
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (t.identifier === joystickTouchId) {
+      joystickTouchId = -1; joystickActive = false;
+      joystickKnob = { x: joystickBase.x, y: joystickBase.y };
+    }
+    if (t.identifier === fireTouchId) {
+      fireTouchId = -1; touchFiring = false;
+      if (state === 'playing' && chargeStart !== null) {
+        const held = performance.now() - chargeStart;
+        chargeStart = null;
+        if (held >= CHARGE_TIME) {
+          const cx = player.x + player.w / 2 - 7;
+          bullets.push({ x: cx, y: player.y, w: 14, h: 28, electro: true });
+        } else {
+          const totalBolts = akkuCount + 1;
+          const spread = 18;
+          const boltX0 = player.x + player.w / 2 - ((totalBolts - 1) * spread) / 2 - 5;
+          for (let b = 0; b < totalBolts; b++)
+            bullets.push({ x: boltX0 + b * spread, y: player.y, w: 10, h: 22, electro: false });
+        }
+      }
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchcancel', e => {
+  e.preventDefault();
+  resetTouchState();
+}, { passive: false });
+
 
 function startGame() {
   state = 'playing';
   score = 0;
   player.x = W / 2 - player.w / 2;
-  player.y = H - 90;
+  player.y = getPlayerStartY();
   player.lives = 3;
   player.invincible = 0;
   player.lastShot = 0;
@@ -243,11 +485,17 @@ function startGame() {
   speedBoostTimer   = 0;
   akkuCount         = 0;
   akkuTimer         = 0;
-  eindringlingMessages        = [];
-  roundBonus                  = null;
-  elektroBonus                = null;
-  elektroCount                = 0;
-  chargeStart                 = null;
+  eindringlingMessages = [];
+  roundBonus           = null;
+  elektroBonus         = null;
+  elektroCount         = 0;
+  chargeStart          = null;
+  leaderboardData      = [];
+  playerRank           = -1;
+  playerFinalScore     = 0;
+  playerFinalName      = '';
+  document.getElementById('nameOverlay').style.display = 'none';
+  resetTouchState();
   bgmPlay();
 }
 
@@ -273,7 +521,7 @@ function wrapText(text, x, y, maxWidth, lineHeight) {
     }
   }
   ctx.fillText(line, x, y);
-  return y; // gibt die letzte Y-Position zurück
+  return y;
 }
 function easeIn(t)  { return t * t * t; }
 
@@ -330,10 +578,10 @@ function update(ts) {
   lastTime = ts;
 
   diffTimer += dt * 1000;
-  if (diffTimer >= 15000) {
+  if (diffTimer >= 10000) {
     diffTimer = 0;
-    spawnInterval = Math.max(650, spawnInterval - 150);
-    enemyBaseSpeed = Math.min(380, enemyBaseSpeed + 14);
+    spawnInterval = Math.max(600, spawnInterval - 170);
+    enemyBaseSpeed = Math.min(400, enemyBaseSpeed + 18);
   }
 
   // ---- Level check ----
@@ -347,7 +595,6 @@ function update(ts) {
     const sw = Math.max(128, ctx.measureText(city).width + 50);
     sign = { active: true, city, sw, x: W - sw - 14, y: -SIGN_H - 10 };
 
-    // Runde komplett wenn wir wieder bei Ost-Berlin landen (ausser Runde 1)
     if (cityIdx === 0 && currentLevel > 1) {
       const round = Math.floor((currentLevel - 1) / eastGermanCities.length);
       player.lives = Math.min(player.lives + 1, 5);
@@ -355,24 +602,20 @@ function update(ts) {
     }
   }
 
-  // ---- Sign scrollt mit Strassengeschwindigkeit (wie Road-Marks) ----
   if (sign.active) {
     sign.y += 220 * dt;
     if (sign.y > H + 50) sign.active = false;
   }
 
-  // ---- Power-up Spawn ----
   powerupSpawnTimer += dt * 1000;
   if (powerupSpawnTimer >= POWERUP_INTERVAL) {
     powerupSpawnTimer = 0;
     const margin = 40;
     const type = Math.random() < 0.5 ? 'mid50' : 'akku';
-    const pw = 20;
-    const ph = 28;
+    const pw = 20, ph = 28;
     powerups.push({ x: margin + Math.random() * (W - 2 * margin - pw), y: -(ph + 10), w: pw, h: ph, type });
   }
 
-  // ---- Power-up Bewegung + Einsammeln ----
   powerups = powerups.filter(p => {
     p.y += 160 * dt;
     if (collides(p, player)) {
@@ -389,7 +632,6 @@ function update(ts) {
     return p.y < H + 10;
   });
 
-  // ---- Effekt-Timer ----
   if (speedBoostTimer > 0) {
     speedBoostTimer -= dt * 1000;
     if (speedBoostTimer <= 0) speedBoostTimer = 0;
@@ -418,8 +660,18 @@ function update(ts) {
   if (keys['ArrowRight'] || keys['KeyD']) player.x += curSpd * dt;
   if (keys['ArrowUp']    || keys['KeyW']) player.y -= curSpd * dt;
   if (keys['ArrowDown']  || keys['KeyS']) player.y += curSpd * dt;
+  if (joystickActive) {
+    const dx   = joystickKnob.x - joystickBase.x;
+    const dy   = joystickKnob.y - joystickBase.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > 5) {
+      const ratio = Math.min(dist / JOYSTICK_MAX_R, 1);
+      player.x += (dx / dist) * curSpd * ratio * dt;
+      player.y += (dy / dist) * curSpd * ratio * dt;
+    }
+  }
   player.x = Math.max(0, Math.min(W - player.w, player.x));
-  player.y = Math.max(0, Math.min(H - player.h, player.y));
+  player.y = Math.max(0, Math.min(getPlayerMaxY(), player.y));
 
   bullets = bullets.filter(b => { b.y -= 580 * dt; return b.y + b.h > 0; });
 
@@ -442,7 +694,6 @@ function update(ts) {
         const isElectro = bullets[i].electro;
         bullets.splice(i, 1);
         if (isElectro && !e.electrified) {
-          // Elektrifizieren
           e.electrified = true;
           spawnParticles(e.x + e.w / 2, e.y + e.h / 2, '#4dd9ff');
           return true;
@@ -456,7 +707,6 @@ function update(ts) {
     }
     if (e.y > H) {
       if (e.electrified) {
-        // Elektrifiziertes Moped eingefahren = Bonus!
         const bonus = e.points * 3;
         score += bonus;
         elektroCount++;
@@ -503,6 +753,7 @@ function loseLife() {
   if (player.lives <= 0) {
     if (score > highScore) highScore = score;
     gameOverQuote = GAME_OVER_QUOTES[Math.floor(Math.random() * GAME_OVER_QUOTES.length)];
+    gameOverSel   = 0;
     state = 'over';
     bgmPause();
   }
@@ -510,8 +761,8 @@ function loseLife() {
 
 // ---- Sprites ----
 
-const SW = 45; // sprite width
-const SH = 63; // sprite height
+const SW = 45;
+const SH = 63;
 
 function drawSchwalbe(x, y, alpha) {
   ctx.globalAlpha = alpha ?? 1;
@@ -526,7 +777,6 @@ function drawEnemy(e) {
   ctx.translate(cx, cy);
   if (e.type !== 'kaefer') ctx.scale(1, -1);
 
-  // Elektrifiziert: blauer Glow
   if (e.electrified) {
     ctx.shadowColor = '#4dd9ff';
     ctx.shadowBlur  = 16 + 8 * Math.sin(Date.now() / 120);
@@ -534,7 +784,6 @@ function drawEnemy(e) {
   ctx.drawImage(e.img(), -e.w / 2, -e.h / 2, e.w, e.h);
   ctx.shadowBlur = 0;
 
-  // Elektrifiziert: blauer Overlay + ⚡
   if (e.electrified) {
     ctx.globalAlpha = 0.25 + 0.1 * Math.sin(Date.now() / 120);
     ctx.fillStyle = '#4dd9ff';
@@ -547,7 +796,6 @@ function drawEnemy(e) {
     ctx.textBaseline = 'alphabetic';
   }
 
-  // Käfer: 1 Treffer erhalten = rot blinken
   if (e.type === 'kaefer' && e.hitsLeft === 1 && !e.electrified) {
     ctx.globalAlpha = 0.35 + 0.3 * Math.sin(Date.now() / 80);
     ctx.fillStyle = '#ff4444';
@@ -580,31 +828,25 @@ function drawOrtsschild(x, y, city, sw) {
   ctx.save();
   const sh = SIGN_H;
 
-  // Mast
   ctx.fillStyle = '#6a6a6a';
   ctx.fillRect(x + sw / 2 - 2, y + sh, 5, 34);
 
-  // Schatten
   ctx.shadowColor   = 'rgba(0,0,0,0.45)';
   ctx.shadowBlur    = 10;
   ctx.shadowOffsetX = 3;
   ctx.shadowOffsetY = 5;
 
-  // Gelber Grund
   ctx.fillStyle = '#f5c800';
   ctx.fillRect(x, y, sw, sh);
   ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
   ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
 
-  // Aussenrahmen
   ctx.strokeStyle = '#111'; ctx.lineWidth = 3;
   ctx.strokeRect(x + 2, y + 2, sw - 4, sh - 4);
 
-  // Innenrahmen
   ctx.strokeStyle = '#111'; ctx.lineWidth = 1.5;
   ctx.strokeRect(x + 6, y + 6, sw - 12, sh - 12);
 
-  // Ortsname zentriert
   ctx.fillStyle = '#111';
   ctx.font = 'bold 19px Inter, Arial, sans-serif';
   ctx.textAlign = 'center';
@@ -629,27 +871,19 @@ function drawBatteryPowerup(p) {
 
   ctx.save();
 
-  // Plus-Terminal
-  ctx.shadowColor = col;
-  ctx.shadowBlur  = 6;
+  ctx.shadowColor = col; ctx.shadowBlur = 6;
   ctx.fillStyle   = col;
   ctx.beginPath();
   ctx.roundRect(x + w / 2 - termW / 2, y, termW, termH, 1);
   ctx.fill();
   ctx.shadowBlur = 0;
 
-  // Korper-Hintergrund
   ctx.fillStyle = '#071820';
-  ctx.beginPath();
-  ctx.roundRect(x, bodyY, w, bodyH, 3);
-  ctx.fill();
+  ctx.beginPath(); ctx.roundRect(x, bodyY, w, bodyH, 3); ctx.fill();
 
-  // Fullstand (75%, von unten)
   const fillH = (bodyH - 4) * 0.75;
   ctx.save();
-  ctx.beginPath();
-  ctx.roundRect(x + 2, bodyY + 2, w - 4, bodyH - 4, 2);
-  ctx.clip();
+  ctx.beginPath(); ctx.roundRect(x + 2, bodyY + 2, w - 4, bodyH - 4, 2); ctx.clip();
   const grad = ctx.createLinearGradient(x, bodyY + bodyH, x, bodyY);
   grad.addColorStop(0,   col);
   grad.addColorStop(0.7, col + 'bb');
@@ -658,33 +892,21 @@ function drawBatteryPowerup(p) {
   ctx.fillRect(x + 2, bodyY + bodyH - 2 - fillH, w - 4, fillH);
   ctx.restore();
 
-  // Zell-Trennlinien (2 Linien = 3 Zellen)
-  ctx.strokeStyle = '#ffffff33';
-  ctx.lineWidth   = 1;
+  ctx.strokeStyle = '#ffffff33'; ctx.lineWidth = 1;
   for (let i = 1; i <= 2; i++) {
     const ly = bodyY + (bodyH / 3) * i;
-    ctx.beginPath();
-    ctx.moveTo(x + 3, ly);
-    ctx.lineTo(x + w - 3, ly);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + 3, ly); ctx.lineTo(x + w - 3, ly); ctx.stroke();
   }
 
-  // Aussenrand + Glow
-  ctx.shadowColor = col;
-  ctx.shadowBlur  = 8;
-  ctx.strokeStyle = col;
-  ctx.lineWidth   = 1.5;
-  ctx.beginPath();
-  ctx.roundRect(x, bodyY, w, bodyH, 3);
-  ctx.stroke();
+  ctx.shadowColor = col; ctx.shadowBlur = 8;
+  ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect(x, bodyY, w, bodyH, 3); ctx.stroke();
   ctx.shadowBlur = 0;
 
-  // Blitz (skaliert auf kleine Grosse)
   const bw = w - 6, bh = bodyH - 6;
   const bx = x + 3, by = bodyY + 3;
-  ctx.shadowColor = col;
-  ctx.shadowBlur  = 4;
-  ctx.fillStyle   = '#ffffffcc';
+  ctx.shadowColor = col; ctx.shadowBlur = 4;
+  ctx.fillStyle = '#ffffffcc';
   ctx.beginPath();
   ctx.moveTo(bx + bw * 0.65, by);
   ctx.lineTo(bx + bw * 0.20, by + bh * 0.50);
@@ -693,15 +915,13 @@ function drawBatteryPowerup(p) {
   ctx.lineTo(bx + bw * 0.80, by + bh * 0.50);
   ctx.lineTo(bx + bw * 0.50, by + bh * 0.50);
   ctx.lineTo(bx + bw,        by);
-  ctx.closePath();
-  ctx.fill();
+  ctx.closePath(); ctx.fill();
   ctx.shadowBlur = 0;
 
   ctx.restore();
 }
 
 function drawMotorPowerup(p) {
-  // Stirnansicht (Querschnitt): Aussenring + 3 Statorpole + Rotor + Welle
   const col = C.gold;
   const cx  = p.x + p.w / 2;
   const cy  = p.y + p.h / 2;
@@ -710,60 +930,37 @@ function drawMotorPowerup(p) {
 
   ctx.save();
 
-  // Gehause-Hintergrund
-  ctx.shadowColor = col;
-  ctx.shadowBlur  = 10;
+  ctx.shadowColor = col; ctx.shadowBlur = 10;
   ctx.fillStyle   = '#1a1208';
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
   ctx.shadowBlur = 0;
 
-  // 3 Statorpole (von Aussenring nach innen zeigend)
   const poleLen = R * 0.52;
   const shoeW   = 5;
   const stemW   = 3;
   for (let i = 0; i < 3; i++) {
     const angle = (i / 3) * Math.PI * 2 - Math.PI / 2;
     ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(angle);
+    ctx.translate(cx, cy); ctx.rotate(angle);
     ctx.fillStyle = col + 'cc';
-    // Stiel
     ctx.fillRect(-stemW / 2, -(R - 1), stemW, poleLen - 2);
-    // Polschuh (breiterer Fuss)
     ctx.fillRect(-shoeW / 2, -(R - 1) + poleLen - 3, shoeW, 4);
     ctx.restore();
   }
 
-  // Aussenring mit Glow
-  ctx.shadowColor = col;
-  ctx.shadowBlur  = 10;
-  ctx.strokeStyle = col;
-  ctx.lineWidth   = 2;
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, Math.PI * 2);
-  ctx.stroke();
+  ctx.shadowColor = col; ctx.shadowBlur = 10;
+  ctx.strokeStyle = col; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
   ctx.shadowBlur = 0;
 
-  // Rotor
   ctx.fillStyle = '#2a1e05';
-  ctx.beginPath();
-  ctx.arc(cx, cy, rr, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = col + 'aa';
-  ctx.lineWidth   = 1.5;
-  ctx.beginPath();
-  ctx.arc(cx, cy, rr, 0, Math.PI * 2);
-  ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = col + 'aa'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.stroke();
 
-  // Wellenmittelpunkt
-  ctx.shadowColor = col;
-  ctx.shadowBlur  = 5;
+  ctx.shadowColor = col; ctx.shadowBlur = 5;
   ctx.fillStyle   = col;
-  ctx.beginPath();
-  ctx.arc(cx, cy, 2, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy, 2, 0, Math.PI * 2); ctx.fill();
   ctx.shadowBlur = 0;
 
   ctx.restore();
@@ -771,58 +968,42 @@ function drawMotorPowerup(p) {
 
 // ---- Runden-Bonus Einblendung ----
 function drawRoundBonus(rb) {
-  const progress = 1 - rb.timer / rb.totalTime;  // 0 → 1 uber die Gesamtdauer
+  const progress = 1 - rb.timer / rb.totalTime;
 
-  // Einblenden (erste 8%), voll sichtbar, Ausblenden (letzte 25%)
   let alpha;
   if (progress < 0.08)       alpha = progress / 0.08;
   else if (progress > 0.75)  alpha = 1 - (progress - 0.75) / 0.25;
   else                       alpha = 1;
 
-  // Leichtes Hochschweben
   const cy = H / 2 - 60 - progress * 30;
 
   ctx.save();
   ctx.globalAlpha = Math.max(0, alpha);
   ctx.textAlign   = 'center';
 
-  // Hintergrund-Pill
   const pillW = 260, pillH = 80;
   ctx.fillStyle = 'rgba(5,5,5,0.75)';
-  ctx.beginPath();
-  ctx.roundRect(W / 2 - pillW / 2, cy - 48, pillW, pillH, 10);
-  ctx.fill();
+  ctx.beginPath(); ctx.roundRect(W / 2 - pillW / 2, cy - 48, pillW, pillH, 10); ctx.fill();
 
-  // Goldener Rahmen mit Glow
-  ctx.shadowColor = C.gold;
-  ctx.shadowBlur  = 20;
-  ctx.strokeStyle = C.gold;
-  ctx.lineWidth   = 1.5;
-  ctx.beginPath();
-  ctx.roundRect(W / 2 - pillW / 2, cy - 48, pillW, pillH, 10);
-  ctx.stroke();
+  ctx.shadowColor = C.gold; ctx.shadowBlur = 20;
+  ctx.strokeStyle = C.gold; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect(W / 2 - pillW / 2, cy - 48, pillW, pillH, 10); ctx.stroke();
   ctx.shadowBlur = 0;
 
-  // "RUNDE X KOMPLETT"
-  ctx.shadowColor = C.gold;
-  ctx.shadowBlur  = 12;
+  ctx.shadowColor = C.gold; ctx.shadowBlur = 12;
   ctx.font        = font(700, 11);
   ctx.fillStyle   = C.gold;
   ctx.letterSpacing = '3px';
   ctx.fillText('RUNDE ' + rb.round + ' KOMPLETT', W / 2, cy - 20);
-  ctx.letterSpacing = '0px';
-  ctx.shadowBlur = 0;
+  ctx.letterSpacing = '0px'; ctx.shadowBlur = 0;
 
-  // "+1 LEBEN" gross
-  ctx.shadowColor = C.gold;
-  ctx.shadowBlur  = 16;
+  ctx.shadowColor = C.gold; ctx.shadowBlur = 16;
   ctx.font        = font(700, 28);
   ctx.fillStyle   = C.light;
   ctx.fillText('+1 LEBEN  ⚡', W / 2, cy + 14);
   ctx.shadowBlur = 0;
 
-  ctx.globalAlpha = 1;
-  ctx.restore();
+  ctx.globalAlpha = 1; ctx.restore();
 }
 
 function drawElektroBonus(eb) {
@@ -840,50 +1021,37 @@ function drawElektroBonus(eb) {
   ctx.globalAlpha = Math.max(0, alpha);
   ctx.textAlign   = 'center';
 
-  // Hintergrund-Pill
   const pillW = 260, pillH = 80;
   ctx.fillStyle = 'rgba(5,5,5,0.75)';
-  ctx.beginPath();
-  ctx.roundRect(W / 2 - pillW / 2, cy - 48, pillW, pillH, 10);
-  ctx.fill();
+  ctx.beginPath(); ctx.roundRect(W / 2 - pillW / 2, cy - 48, pillW, pillH, 10); ctx.fill();
 
-  // Cyan-Rahmen mit Glow
-  ctx.shadowColor = col;
-  ctx.shadowBlur  = 20;
-  ctx.strokeStyle = col;
-  ctx.lineWidth   = 1.5;
-  ctx.beginPath();
-  ctx.roundRect(W / 2 - pillW / 2, cy - 48, pillW, pillH, 10);
-  ctx.stroke();
+  ctx.shadowColor = col; ctx.shadowBlur = 20;
+  ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect(W / 2 - pillW / 2, cy - 48, pillW, pillH, 10); ctx.stroke();
   ctx.shadowBlur = 0;
 
-  // "5 MOPEDS ELEKTRIFIZIERT"
-  ctx.shadowColor = col;
-  ctx.shadowBlur  = 12;
+  ctx.shadowColor = col; ctx.shadowBlur = 12;
   ctx.font        = font(700, 11);
   ctx.fillStyle   = col;
   ctx.letterSpacing = '3px';
   ctx.fillText(eb.count + ' MOPEDS ELEKTRIFIZIERT', W / 2, cy - 20);
-  ctx.letterSpacing = '0px';
-  ctx.shadowBlur = 0;
+  ctx.letterSpacing = '0px'; ctx.shadowBlur = 0;
 
-  // "+1 LEBEN"
-  ctx.shadowColor = col;
-  ctx.shadowBlur  = 16;
+  ctx.shadowColor = col; ctx.shadowBlur = 16;
   ctx.font        = font(700, 28);
   ctx.fillStyle   = C.light;
   ctx.fillText('+1 LEBEN  ⚡', W / 2, cy + 14);
   ctx.shadowBlur = 0;
 
-  ctx.globalAlpha = 1;
-  ctx.restore();
+  ctx.globalAlpha = 1; ctx.restore();
 }
 
 // ---- Eindringling ----
 function drawEindringling(m) {
   const progress = 1 - (m.timer / 1800);
   const alpha    = progress < 0.1 ? progress / 0.1 : 1 - ((progress - 0.1) / 0.9);
-  const y        = H - 60 - progress * 50;
+  const baseY    = isMobile ? BTN_Y - 70 : H - 60;
+  const y        = baseY - progress * 50;
   const labels   = { vespa: 'VESPA', florett: 'FLORETT', ks50: 'KS 50', kaefer: 'KÄFER' };
 
   ctx.save();
@@ -891,9 +1059,7 @@ function drawEindringling(m) {
   ctx.textAlign   = 'center';
 
   if (m.elektro) {
-    // Elektrifiziert: blau + Bonus
-    ctx.shadowColor = '#4dd9ff';
-    ctx.shadowBlur  = 18;
+    ctx.shadowColor = '#4dd9ff'; ctx.shadowBlur = 18;
     ctx.font        = "bold 28px 'Inter', Arial, sans-serif";
     ctx.fillStyle   = '#4dd9ff';
     ctx.fillText('⚡ ELEKTRIFIZIERT!', W / 2, y);
@@ -904,9 +1070,7 @@ function drawEindringling(m) {
     ctx.fillText((labels[m.type] || '') + '  +' + m.bonus, W / 2, y + 22);
     ctx.letterSpacing = '0px';
   } else {
-    // Normaler Eindringling: rot
-    ctx.shadowColor = '#ff2222';
-    ctx.shadowBlur  = 18;
+    ctx.shadowColor = '#ff2222'; ctx.shadowBlur = 18;
     ctx.font        = "bold 32px 'Inter', Arial, sans-serif";
     ctx.fillStyle   = '#ff3333';
     ctx.fillText('EINDRINGLING!', W / 2, y);
@@ -918,8 +1082,7 @@ function drawEindringling(m) {
     ctx.letterSpacing = '0px';
   }
 
-  ctx.globalAlpha = 1;
-  ctx.restore();
+  ctx.globalAlpha = 1; ctx.restore();
 }
 
 // ---- Background ----
@@ -928,13 +1091,11 @@ function drawBackground() {
   ctx.fillStyle = C.bg;
   ctx.fillRect(0, 0, W, H);
 
-  // Lane edges
   ctx.strokeStyle = C.mid + '44';
   ctx.lineWidth = 4;
   ctx.beginPath(); ctx.moveTo(22, 0); ctx.lineTo(22, H); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(W - 22, 0); ctx.lineTo(W - 22, H); ctx.stroke();
 
-  // Center dashes
   roadMarks.forEach(r => {
     ctx.fillStyle = C.mid + '55';
     ctx.fillRect(W / 2 - 2, r.y, 4, 36);
@@ -956,7 +1117,7 @@ function drawHUD() {
   ctx.fillText('SCORE  ' + String(score).padStart(5, '0'), W - 18, 28);
   ctx.letterSpacing = '0px';
 
-  // Ort (unter Score, rechts ausgerichtet)
+  // Ort
   if (currentCity) {
     ctx.textAlign = 'right';
     ctx.font = font(700, 15);
@@ -966,37 +1127,48 @@ function drawHUD() {
     ctx.letterSpacing = '0px';
   }
 
-  // Lives (zentriert oben)
-  ctx.shadowColor = C.gold;
-  ctx.shadowBlur  = 6;
-  ctx.textAlign   = 'left';
+  // Lives
+  ctx.shadowColor = C.gold; ctx.shadowBlur = 6;
   ctx.font        = font(400, 16);
   ctx.fillStyle   = C.gold;
-  const livesStartX = W / 2 - ((player.lives - 1) * 24) / 2 - 10;
-  for (let i = 0; i < player.lives; i++) ctx.fillText('⚡', livesStartX + i * 24, 28);
+  if (isMobile) {
+    // Mobile: lives zentriert
+    const livesStartX = W / 2 - ((player.lives - 1) * 24) / 2 - 10;
+    ctx.textAlign = 'left';
+    for (let i = 0; i < player.lives; i++) ctx.fillText('⚡', livesStartX + i * 24, 28);
+    // Pause-Button (oben rechts, unter Score)
+    const px = W - 24, py = 82;
+    ctx.strokeStyle = C.mid + 'aa'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(px, py, 16, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = C.mid + 'aa';
+    ctx.fillRect(px - 6, py - 8, 4, 16);
+    ctx.fillRect(px + 2, py - 8, 4, 16);
+  } else {
+    // Desktop: lives zentriert
+    const livesStartX = W / 2 - ((player.lives - 1) * 24) / 2 - 10;
+    ctx.textAlign = 'left';
+    for (let i = 0; i < player.lives; i++) ctx.fillText('⚡', livesStartX + i * 24, 28);
+    // Pause hint
+    ctx.textAlign = 'right';
+    ctx.font = font(400, 11);
+    ctx.fillStyle = C.light + 'bb';
+    ctx.fillText('[P] Pause', W - 14, 76);
+  }
   ctx.shadowBlur = 0;
-
-  // Pause hint
-  ctx.textAlign = 'right';
-  ctx.font = font(400, 11);
-  ctx.fillStyle = C.light + 'bb';
-  ctx.fillText('[P] Pause', W - 14, 76);
 
   // Ladebalken (unten mitte, wenn Space gehalten)
   if (chargeStart !== null) {
     const progress = Math.min((performance.now() - chargeStart) / CHARGE_TIME, 1);
     const bw = 120, bh = 6;
-    const bx = W / 2 - bw / 2, by = H - 22;
-    // Hintergrund
+    const bx = W / 2 - bw / 2;
+    const by = isMobile ? BTN_Y - 20 : H - 22;
     ctx.fillStyle = '#ffffff22';
     ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 3); ctx.fill();
-    // Füllstand
     const col = progress >= 1 ? '#4dd9ff' : C.gold;
     ctx.shadowColor = col; ctx.shadowBlur = progress >= 1 ? 10 : 4;
     ctx.fillStyle = col;
     ctx.beginPath(); ctx.roundRect(bx, by, bw * progress, bh, 3); ctx.fill();
     ctx.shadowBlur = 0;
-    // Label
     ctx.textAlign = 'center';
     ctx.font = font(700, 10);
     ctx.fillStyle = progress >= 1 ? '#4dd9ff' : C.light + '99';
@@ -1005,29 +1177,91 @@ function drawHUD() {
     ctx.letterSpacing = '0px';
   }
 
-  // ---- Aktive Effekte (unten links) ----
+  // ---- Aktive Effekte ----
+  const pillY = isMobile ? BTN_Y - 30 : H - 38;
   let pillX = 14;
   if (speedBoostTimer > 0) {
     const secs = Math.ceil(speedBoostTimer / 1000);
     ctx.fillStyle   = 'rgba(228,184,84,0.18)';
     ctx.strokeStyle = C.gold; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.roundRect(pillX, H - 38, 74, 22, 4); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(pillX, pillY, 74, 22, 4); ctx.fill(); ctx.stroke();
     ctx.fillStyle = C.gold;
     ctx.font = font(700, 11); ctx.textAlign = 'left';
     ctx.letterSpacing = '0px';
-    ctx.fillText('M50  ' + secs + 's', pillX + 7, H - 22);
+    ctx.fillText('M50  ' + secs + 's', pillX + 7, pillY + 16);
     pillX += 82;
   }
   if (akkuTimer > 0) {
     const secs = Math.ceil(akkuTimer / 1000);
     ctx.fillStyle   = 'rgba(77,217,255,0.18)';
     ctx.strokeStyle = '#4dd9ff'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.roundRect(pillX, H - 38, 88, 22, 4); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(pillX, pillY, 88, 22, 4); ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#4dd9ff';
     ctx.font = font(700, 11); ctx.textAlign = 'left';
     ctx.letterSpacing = '0px';
-    ctx.fillText('⚡x' + (akkuCount + 1) + '  ' + secs + 's', pillX + 7, H - 22);
+    ctx.fillText('⚡x' + (akkuCount + 1) + '  ' + secs + 's', pillX + 7, pillY + 16);
   }
+}
+
+// ---- Touch-Buttons ----
+function drawTouchButtons() {
+  ctx.save();
+
+  // ---- Joystick ----
+  const bx = joystickActive ? joystickBase.x : JOYSTICK_SPLIT + (W - JOYSTICK_SPLIT) / 2;
+  const by = joystickActive ? joystickBase.y : BTN_Y + BTN_H / 2;
+  const kx = joystickActive ? joystickKnob.x : bx;
+  const ky = joystickActive ? joystickKnob.y : by;
+
+  // Äusserer Ring
+  ctx.globalAlpha = joystickActive ? 0.35 : 0.14;
+  ctx.strokeStyle = C.light;
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath(); ctx.arc(bx, by, JOYSTICK_MAX_R, 0, Math.PI * 2); ctx.stroke();
+
+  // Kreuz-Markierungen im Ring (Orientierungshilfe)
+  ctx.globalAlpha = joystickActive ? 0.18 : 0.08;
+  ctx.lineWidth   = 1;
+  for (const [ox, oy] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+    ctx.beginPath();
+    ctx.moveTo(bx + ox * (JOYSTICK_MAX_R - 10), by + oy * (JOYSTICK_MAX_R - 10));
+    ctx.lineTo(bx + ox * JOYSTICK_MAX_R,        by + oy * JOYSTICK_MAX_R);
+    ctx.stroke();
+  }
+
+  // Knob (gefüllt)
+  ctx.globalAlpha = joystickActive ? 0.55 : 0.20;
+  ctx.fillStyle   = C.light;
+  ctx.beginPath(); ctx.arc(kx, ky, 18, 0, Math.PI * 2); ctx.fill();
+
+  ctx.globalAlpha = joystickActive ? 0.90 : 0.38;
+  ctx.strokeStyle = C.light;
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath(); ctx.arc(kx, ky, 18, 0, Math.PI * 2); ctx.stroke();
+
+  // ---- Feuer-Button ---- (zentriert in der linken Zone)
+  const fw = Math.min(JOYSTICK_SPLIT - 30, 100);
+  const fx = (JOYSTICK_SPLIT - fw) / 2;
+  const a  = touchFiring;
+
+  ctx.globalAlpha = a ? 0.28 : 0.09;
+  ctx.fillStyle   = C.gold;
+  ctx.beginPath(); ctx.roundRect(fx, BTN_Y + 4, fw, BTN_H - 8, 10); ctx.fill();
+
+  ctx.globalAlpha = a ? 0.70 : 0.22;
+  ctx.strokeStyle = C.gold; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect(fx, BTN_Y + 4, fw, BTN_H - 8, 10); ctx.stroke();
+
+  ctx.globalAlpha = a ? 1.0 : 0.40;
+  ctx.fillStyle   = C.gold;
+  ctx.font        = font(700, 26);
+  ctx.textAlign   = 'center';
+  if (a) { ctx.shadowColor = C.gold; ctx.shadowBlur = 14; }
+  ctx.fillText('⚡', fx + fw / 2, BTN_Y + BTN_H / 2 + 10);
+  ctx.shadowBlur = 0;
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 // ---- Overlays ----
@@ -1036,13 +1270,11 @@ function drawStartScreen() {
   ctx.fillStyle = C.black;
   ctx.fillRect(0, 0, W, H);
 
-  // ---- Titel-Block ----
   ctx.textAlign = 'center';
 
   ctx.font = font(700, 72);
   ctx.fillStyle = C.gold;
-  ctx.shadowColor = C.gold;
-  ctx.shadowBlur  = 28;
+  ctx.shadowColor = C.gold; ctx.shadowBlur = 28;
   ctx.fillText('OST', W / 2, 130);
   ctx.shadowBlur = 0;
 
@@ -1050,11 +1282,9 @@ function drawStartScreen() {
   ctx.fillStyle = C.light;
   ctx.fillText('INVADER', W / 2, 210);
 
-  // Trennlinie
   ctx.fillStyle = C.gold;
   ctx.fillRect(60, 228, W - 120, 2);
 
-  // ---- Tagline ----
   ctx.font = font(400, 15);
   ctx.fillStyle = C.light + 'cc';
   ctx.fillText('Verteidige den Osten!', W / 2, 268);
@@ -1063,10 +1293,8 @@ function drawStartScreen() {
   ctx.fillText('Verhindere, dass Westmopeds die Grenze überqueren –', W / 2, 292);
   ctx.fillText('oder elektrifiziere sie.', W / 2, 312);
 
-  // ---- Schwalbe zentriert ----
   drawSchwalbe(W / 2 - 22, 340);
 
-  // ---- Steuerung ----
   ctx.fillStyle = C.gold + '55';
   ctx.fillRect(60, 440, W - 120, 1);
 
@@ -1076,12 +1304,20 @@ function drawStartScreen() {
   ctx.fillText('STEUERUNG', W / 2, 462);
   ctx.letterSpacing = '0px';
 
-  const controls = [
-    ['WASD / PFEILTASTEN', 'Bewegen'],
-    ['LEERTASTE',          'Schießen'],
-    ['LEERTASTE halten',   'Elektro-Schuss'],
-    ['P',                  'Pause'],
-  ];
+  const controls = isMobile
+    ? [
+        ['JOYSTICK',          'Bewegen (alle Richtungen)'],
+        ['⚡  FEUER tippen',  'Schießen'],
+        ['⚡  FEUER halten',  'Elektro-Schuss laden'],
+        ['PAUSE-BUTTON',      'Pause / Fortsetzen'],
+      ]
+    : [
+        ['WASD / PFEILTASTEN', 'Bewegen'],
+        ['LEERTASTE',          'Schießen'],
+        ['LEERTASTE halten',   'Elektro-Schuss'],
+        ['P',                  'Pause'],
+      ];
+
   ctx.font = font(400, 12);
   controls.forEach(([key, desc], i) => {
     const y = 482 + i * 20;
@@ -1096,20 +1332,16 @@ function drawStartScreen() {
   ctx.fillStyle = C.gold + '55';
   ctx.fillRect(60, 564, W - 120, 1);
 
-  // ---- CTA blink ----
   ctx.textAlign = 'center';
   if (Math.floor(Date.now() / 600) % 2 === 0) {
     ctx.font = font(700, 13);
     ctx.fillStyle = C.gold;
     ctx.letterSpacing = '3px';
-    ctx.shadowColor = C.gold;
-    ctx.shadowBlur  = 10;
-    ctx.fillText('LEERTASTE ZUM STARTEN', W / 2, 598);
-    ctx.shadowBlur = 0;
-    ctx.letterSpacing = '0px';
+    ctx.shadowColor = C.gold; ctx.shadowBlur = 10;
+    ctx.fillText(isMobile ? 'TIPPEN ZUM STARTEN' : 'LEERTASTE ZUM STARTEN', W / 2, 598);
+    ctx.shadowBlur = 0; ctx.letterSpacing = '0px';
   }
 
-  // ---- Highscore ----
   if (highScore > 0) {
     ctx.font = font(400, 12);
     ctx.fillStyle = C.light + '55';
@@ -1121,19 +1353,16 @@ function drawPauseOverlay() {
   ctx.fillStyle = 'rgba(5,5,5,0.90)';
   ctx.fillRect(0, 0, W, H);
 
-  // Layout-Konstanten
   const CX  = W / 2;
-  const LX  = CX - 16;   // rechte Kante linke Spalte
-  const RX  = CX + 16;   // linke Kante rechte Spalte
-  const IH  = 20;        // einheitliche Icon-Hohe
+  const LX  = CX - 16;
+  const RX  = CX + 16;
+  const IH  = 20;
 
-  // Hilfsfunktion: Abschnitts-Trennlinie
   function divider(y, alpha) {
     ctx.fillStyle = alpha ? C.gold + alpha : C.gold + '44';
     ctx.fillRect(CX - 110, y, 220, 1);
   }
 
-  // Hilfsfunktion: Abschnitts-Uberschrift
   function sectionHeader(label, y) {
     ctx.textAlign   = 'center';
     ctx.font        = font(700, 10);
@@ -1143,7 +1372,6 @@ function drawPauseOverlay() {
     ctx.letterSpacing = '0px';
   }
 
-  // Hilfsfunktion: Inhaltszeile (links = Label, rechts = Beschreibung)
   function row(left, right, y) {
     ctx.font      = font(500, 12);
     ctx.fillStyle = C.light + 'cc';
@@ -1157,30 +1385,33 @@ function drawPauseOverlay() {
 
   let y = 26;
 
-  // ---- Titel ----
   divider(y, 'ff'); y += 10;
   ctx.textAlign = 'center';
   ctx.font      = font(700, 34);
   ctx.fillStyle = C.light;
   y += 34;
   ctx.fillText('PAUSE', CX, y);
-  y += 10;
-  divider(y, 'ff'); y += 22;
+  y += 10; divider(y, 'ff'); y += 22;
 
-  // ---- STEUERUNG ----
   sectionHeader('STEUERUNG', y); y += 18;
-  [
-    ['WASD / PFEILTASTEN', 'Bewegen'],
-    ['LEERTASTE',          'Schießen'],
-    ['LEERTASTE halten',   '⚡ Elektro-Schuss'],
-    ['P',                  'Pause / Fortsetzen'],
-  ].forEach(([k, v]) => { row(k, v, y); y += 20; });
+  const controlRows = isMobile
+    ? [
+        ['JOYSTICK',       'Bewegen (alle Richtungen)'],
+        ['⚡  FEUER tippen',  'Schießen'],
+        ['⚡  FEUER halten',  'Elektro-Schuss laden'],
+        ['PAUSE-BUTTON',      'Pause / Fortsetzen'],
+      ]
+    : [
+        ['WASD / PFEILTASTEN', 'Bewegen'],
+        ['LEERTASTE',          'Schießen'],
+        ['LEERTASTE halten',   '⚡ Elektro-Schuss'],
+        ['P',                  'Pause / Fortsetzen'],
+      ];
+  controlRows.forEach(([k, v]) => { row(k, v, y); y += 20; });
   y += 8; divider(y); y += 20;
 
-  // ---- POWER-UPS ----
   sectionHeader('POWER-UPS', y); y += 20;
 
-  // Icons + Text: rowY ist die vertikale Mitte der Zeile
   const BIW    = 13;
   const iconCX = LX - 10;
 
@@ -1189,23 +1420,19 @@ function drawPauseOverlay() {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
 
-  // Motor
   let rowY = y;
   drawMotorPowerup({ x: iconCX - IH / 2, y: rowY - IH / 2, w: IH, h: IH, type: 'mid50' });
   ctx.fillText('Speedboost für 10 Sek.', RX, rowY);
   y += 40;
 
-  // Akku
   rowY = y;
   drawBatteryPowerup({ x: iconCX - BIW / 2, y: rowY - IH / 2, w: BIW, h: IH, type: 'akku' });
   ctx.fillText('Extra Schuss für 10 Sek.', RX, rowY);
   y += 28;
 
   ctx.textBaseline = 'alphabetic';
-
   y += 8; divider(y); y += 20;
 
-  // ---- GEGNER ----
   sectionHeader('GEGNER', y); y += 18;
   [
     ['VESPA',   'Standard'],
@@ -1215,7 +1442,6 @@ function drawPauseOverlay() {
   ].forEach(([k, v]) => { row(k, v, y); y += 20; });
   y += 8; divider(y); y += 20;
 
-  // ---- BONI ----
   sectionHeader('BONI', y); y += 18;
   row('15 Städte', '+1 Leben (max. 5)', y); y += 20;
   row('5 Elektrifizierte', '+1 Leben (max. 5)', y);
@@ -1223,12 +1449,11 @@ function drawPauseOverlay() {
 
   divider(y, 'ff');
 
-  // ---- Footer ----
   ctx.textAlign   = 'center';
   ctx.font        = font(400, 10);
   ctx.fillStyle   = C.mid + 'aa';
   ctx.letterSpacing = '2px';
-  ctx.fillText('P  DRÜCKEN  ZUM  WEITERSPIELEN', CX, H - 14);
+  ctx.fillText(isMobile ? 'TIPPEN  ZUM  WEITERSPIELEN' : 'P  DRÜCKEN  ZUM  WEITERSPIELEN', CX, H - 14);
   ctx.letterSpacing = '0px';
 }
 
@@ -1238,43 +1463,34 @@ function drawGameOver() {
 
   ctx.textAlign = 'center';
 
-  // ---- GAME OVER Titel mit Glow ----
   ctx.font = font(700, 64);
   ctx.fillStyle = C.light;
-  ctx.shadowColor = C.light;
-  ctx.shadowBlur  = 32;
+  ctx.shadowColor = C.light; ctx.shadowBlur = 32;
   ctx.fillText('GAME', W / 2, 170);
-  ctx.shadowBlur  = 14;
+  ctx.shadowBlur = 14;
   ctx.fillText('OVER', W / 2, 248);
-  ctx.shadowBlur  = 0;
+  ctx.shadowBlur = 0;
 
-  // Trennlinie
   ctx.fillStyle = C.gold;
   ctx.fillRect(60, 270, W - 120, 2);
 
-  // ---- Spruch ----
   ctx.font = font(400, 15);
   ctx.fillStyle = C.light + 'bb';
   ctx.fillText(gameOverQuote, W / 2, 300);
 
-  // ---- Score ----
   ctx.font = font(700, 44);
   ctx.fillStyle = C.gold;
-  ctx.shadowColor = C.gold;
-  ctx.shadowBlur  = 20;
+  ctx.shadowColor = C.gold; ctx.shadowBlur = 20;
   ctx.fillText(String(score).padStart(5, '0'), W / 2, 370);
-  ctx.shadowBlur  = 0;
+  ctx.shadowBlur = 0;
 
-  // Trennlinie
   ctx.fillStyle = C.gold + '66';
   ctx.fillRect(60, 390, W - 120, 1);
 
-  // ---- Stats ----
   ctx.font = font(400, 13);
   ctx.fillStyle = C.light + 'bb';
   ctx.letterSpacing = '2px';
   let statY = 420;
-  // Highscore nur zeigen wenn er nicht identisch mit dem aktuellen Score ist
   if (highScore > score) {
     ctx.fillText('HIGHSCORE  ' + String(highScore).padStart(5, '0'), W / 2, statY);
     statY += 24;
@@ -1298,52 +1514,52 @@ function drawGameOver() {
   ctx.letterSpacing = '0px';
   statY += 24;
 
-  // Trennlinie + CTA direkt unter dem Inhalt
   statY += 16;
+  gameOverMenuBaseY = statY;
   ctx.fillStyle = C.gold + '44';
   ctx.fillRect(60, statY, W - 120, 1);
 
-  // ---- CTA blink ----
-  if (Math.floor(Date.now() / 600) % 2 === 0) {
-    ctx.font = font(700, 13);
-    ctx.fillStyle = C.gold;
-    ctx.shadowColor = C.gold;
-    ctx.shadowBlur  = 10;
-    ctx.letterSpacing = '3px';
-    ctx.fillText('ENTER ZUM NEUSTART', W / 2, statY + 30);
-    ctx.shadowBlur  = 0;
+  const menuItems = ['BESTENLISTE', 'NEUSTART'];
+  menuItems.forEach((label, i) => {
+    const y      = statY + 34 + i * 34;
+    const sel    = gameOverSel === i;
+    ctx.font      = font(700, 13);
+    ctx.fillStyle = sel ? C.gold : C.light + '44';
+    ctx.letterSpacing = '2px';
+    if (sel) {
+      ctx.shadowColor = C.gold;
+      ctx.shadowBlur  = 10;
+    }
+    ctx.textAlign = 'center';
+    ctx.fillText((sel ? '> ' : '  ') + label + (sel ? ' <' : '  '), W / 2, y);
+    ctx.shadowBlur    = 0;
     ctx.letterSpacing = '0px';
-  }
+  });
+  ctx.font = font(400, 10);
+  ctx.fillStyle = C.mid;
+  ctx.letterSpacing = '1px';
+  ctx.fillText(isMobile ? 'TIPPEN  ZUM  AUSWÄHLEN' : '↑ ↓  AUSWÄHLEN    ENTER  BESTÄTIGEN', W / 2, statY + 108);
+  ctx.letterSpacing = '0px';
 }
 
 // ---- Minimap ----
 function drawMinimap() {
   ctx.save();
-
-  // Kartenbild (transparent, kein Rahmen)
   ctx.drawImage(mapImg, MM_X, MM_Y, MM_W, MM_H);
 
-  // Aktuellen Stadtpunkt einzeichnen
   const pos = currentCity ? CITY_MAP_POS[currentCity] : CITY_MAP_POS['Ost-Berlin'];
   if (pos) {
     const dotX  = MM_X + pos[0] * MM_W;
     const dotY  = MM_Y + pos[1] * MM_H;
     const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 280);
 
-    // Aussenglow
-    ctx.shadowColor = '#ff2222';
-    ctx.shadowBlur  = 10 + pulse * 8;
+    ctx.shadowColor = '#ff2222'; ctx.shadowBlur = 10 + pulse * 8;
     ctx.fillStyle   = '#ff2222';
-    ctx.beginPath();
-    ctx.arc(dotX, dotY, 7 + pulse * 1.2, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(dotX, dotY, 7 + pulse * 1.2, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0;
 
-    // Weisser Kern
     ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(dotX, dotY, 3, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(dotX, dotY, 3, 0, Math.PI * 2); ctx.fill();
   }
 
   ctx.restore();
@@ -1352,7 +1568,9 @@ function drawMinimap() {
 // ---- Draw frame ----
 
 function draw() {
-  if (state === 'start') { drawStartScreen(); return; }
+  ctx.setTransform(canvasScale, 0, 0, canvasScale, 0, 0);
+  if (state === 'start')       { drawStartScreen(); return; }
+  if (state === 'leaderboard') { drawLeaderboard();  return; }
 
   drawBackground();
   drawMinimap();
@@ -1371,13 +1589,239 @@ function draw() {
     ctx.globalAlpha = 1;
   });
 
-  // Republikflucht-Nachrichten
   eindringlingMessages.forEach(m => drawEindringling(m));
   if (roundBonus)   drawRoundBonus(roundBonus);
   if (elektroBonus) drawElektroBonus(elektroBonus);
   drawHUD();
+  if (isMobile && state === 'playing') drawTouchButtons();
   if (state === 'paused') drawPauseOverlay();
   if (state === 'over')   drawGameOver();
+}
+
+// ---- Leaderboard Funktionen ----
+//
+// ABLAUF:
+//   Game Over
+//     → Pfeil hoch/runter: Auswahl zwischen BESTENLISTE und NEUSTART
+//     → Enter auf BESTENLISTE → showNameInput()
+//         → HTML-Overlay erscheint, Spieler tippt Namen
+//         → "Eintragen" oder Enter → goToLeaderboard(name, score)
+//         → "Überspringen" oder Escape → goToLeaderboard(null, score)
+//     → Enter auf NEUSTART → startGame()
+//
+//   goToLeaderboard(name, score):
+//     1. Score in Supabase speichern (wenn Name angegeben)
+//     2. Top-10 aus Supabase laden
+//     3. Rang des Spielers berechnen
+//     4. state = 'leaderboard' → drawLeaderboard() wird gezeichnet
+//
+// SUPABASE:
+//   Kein eigener Server nötig. Supabase stellt eine REST-API bereit,
+//   die direkt aus dem Browser angesprochen wird. Der ANON-Key ist
+//   öffentlich lesbar (das ist okay), RLS erlaubt nur SELECT + INSERT.
+
+// Holt die Top-10-Einträge aus der Supabase-Datenbank.
+// Gibt leeres Array zurück wenn Supabase nicht konfiguriert oder Fehler auftritt.
+async function fetchLeaderboard() {
+  if (SUPABASE_URL === 'DEINE_SUPABASE_URL') return [];
+  try {
+    const res = await fetch(
+      // REST-Query: Tabelle "scores", nur name+score, absteigend nach score, max 10
+      `${SUPABASE_URL}/rest/v1/scores?select=name,score&order=score.desc&limit=10`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    return res.ok ? await res.json() : [];
+  } catch { return []; }
+}
+
+// Schreibt einen neuen Score-Eintrag in die Datenbank (HTTP POST).
+// Name wird auf 20 Zeichen begrenzt und getrimmt.
+async function submitScore(name, sc) {
+  if (SUPABASE_URL === 'DEINE_SUPABASE_URL') return;
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/scores`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',  // Supabase soll keinen Body zurückschicken
+      },
+      body: JSON.stringify({ name: name.trim().slice(0, 20), score: sc }),
+    });
+  } catch {}
+}
+
+// Zentrale Funktion: Score optional speichern, Bestenliste laden, Rang berechnen.
+// name=null bedeutet: Spieler hat übersprungen, kein Eintrag wird gespeichert.
+async function goToLeaderboard(name, sc) {
+  playerFinalScore = sc;
+  playerFinalName  = name || '';
+  if (name) await submitScore(name, sc);      // erst speichern...
+  leaderboardData  = await fetchLeaderboard(); // ...dann neu laden (eigener Eintrag ist drin)
+  if (playerFinalName) {
+    // Rang = Position im Array (0-basiert) + 1
+    // Falls nicht in Top 10, wird length+1 als Platzhalter gesetzt
+    const idx = leaderboardData.findIndex(
+      e => e.name === playerFinalName && e.score === playerFinalScore
+    );
+    playerRank = idx >= 0 ? idx + 1 : leaderboardData.length + 1;
+  }
+  state = 'leaderboard';
+}
+
+// Zeigt das HTML-Overlay für die Namenseingabe.
+// State wird auf 'nameInput' gesetzt damit Spieltasten nicht reagieren.
+function showNameInput() {
+  document.getElementById('overlayScore').textContent = String(score).padStart(5, '0');
+  document.getElementById('nameOverlay').style.display = 'block';
+  document.getElementById('nameInput').value = '';
+  document.getElementById('nameInput').focus();
+  state = 'nameInput';
+}
+
+// Button "Eintragen": Name validieren, Overlay schließen, Score hochladen
+document.getElementById('submitBtn').addEventListener('click', () => {
+  const name = document.getElementById('nameInput').value.trim();
+  if (!name) return;
+  document.getElementById('nameOverlay').style.display = 'none';
+  goToLeaderboard(name, score);
+});
+
+// Button "Überspringen": kein Eintrag, trotzdem Bestenliste anzeigen
+document.getElementById('skipBtn').addEventListener('click', () => {
+  document.getElementById('nameOverlay').style.display = 'none';
+  goToLeaderboard(null, score);
+});
+
+// Tastatur im Namens-Input: Enter = absenden, Escape = überspringen
+// e.stopPropagation() verhindert dass die Spieltasten-Handler mithören
+document.getElementById('nameInput').addEventListener('keydown', e => {
+  if (e.code === 'Enter') {
+    e.preventDefault();
+    const name = document.getElementById('nameInput').value.trim();
+    if (name) {
+      document.getElementById('nameOverlay').style.display = 'none';
+      goToLeaderboard(name, score);
+    }
+  }
+  if (e.code === 'Escape') {
+    e.preventDefault();
+    document.getElementById('nameOverlay').style.display = 'none';
+    goToLeaderboard(null, score);
+  }
+  e.stopPropagation();
+});
+
+function drawLeaderboard() {
+  ctx.fillStyle = C.black;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = 'center';
+
+  ctx.font = font(700, 13);
+  ctx.fillStyle = C.gold;
+  ctx.letterSpacing = '4px';
+  ctx.shadowColor = C.gold; ctx.shadowBlur = 12;
+  ctx.fillText('BESTENLISTE', W / 2, 52);
+  ctx.shadowBlur = 0; ctx.letterSpacing = '0px';
+
+  ctx.fillStyle = C.gold;
+  ctx.fillRect(60, 64, W - 120, 1);
+
+  const colRank  = 82;
+  const colName  = 118;
+  const colScore = 432;
+
+  ctx.font = font(700, 10);
+  ctx.fillStyle = C.mid;
+  ctx.letterSpacing = '1px';
+  ctx.textAlign = 'right';
+  ctx.fillText('#', colRank, 84);
+  ctx.textAlign = 'left';
+  ctx.fillText('NAME', colName, 84);
+  ctx.textAlign = 'right';
+  ctx.fillText('SCORE', colScore, 84);
+  ctx.letterSpacing = '0px';
+
+  ctx.fillStyle = C.dim;
+  ctx.fillRect(60, 90, W - 120, 1);
+
+  if (SUPABASE_URL === 'DEINE_SUPABASE_URL') {
+    ctx.textAlign = 'center';
+    ctx.font = font(400, 12);
+    ctx.fillStyle = C.mid;
+    ctx.fillText('Supabase nicht konfiguriert.', W / 2, 200);
+  } else if (leaderboardData.length === 0) {
+    ctx.textAlign = 'center';
+    ctx.font = font(400, 13);
+    ctx.fillStyle = C.mid;
+    ctx.fillText('Noch keine Einträge.', W / 2, 200);
+  } else {
+    leaderboardData.slice(0, 10).forEach((entry, i) => {
+      const y      = 116 + i * 40;
+      const rank   = i + 1;
+      const isMe   = playerFinalName &&
+                     entry.name  === playerFinalName &&
+                     entry.score === playerFinalScore &&
+                     rank        === playerRank;
+
+      if (isMe) {
+        ctx.fillStyle = 'rgba(228,184,84,0.08)';
+        ctx.fillRect(60, y - 18, W - 120, 34);
+        ctx.strokeStyle = C.gold + '44'; ctx.lineWidth = 1;
+        ctx.strokeRect(60, y - 18, W - 120, 34);
+      }
+
+      const col = isMe ? C.gold : (rank <= 3 ? C.light : C.light + '99');
+      ctx.fillStyle = col;
+      ctx.font = font(isMe ? 700 : 400, 14);
+
+      ctx.textAlign = 'right';
+      ctx.fillText(rank, colRank, y);
+
+      ctx.textAlign = 'left';
+      let displayName = entry.name;
+      const maxW = colScore - colName - 20;
+      while (ctx.measureText(displayName).width > maxW && displayName.length > 1)
+        displayName = displayName.slice(0, -1);
+      if (displayName !== entry.name) displayName += '…';
+      ctx.fillText(displayName, colName, y);
+
+      ctx.textAlign = 'right';
+      ctx.fillText(String(entry.score).padStart(5, '0'), colScore, y);
+    });
+
+    const inTop = leaderboardData.slice(0, 10).some(
+      (e, i) => e.name === playerFinalName && e.score === playerFinalScore && (i + 1) === playerRank
+    );
+    if (playerFinalName && !inTop && playerRank > 0) {
+      const y = 116 + 10 * 40 + 8;
+      ctx.fillStyle = C.dim;
+      ctx.fillRect(60, y - 22, W - 120, 1);
+      ctx.fillStyle = C.gold;
+      ctx.font = font(700, 14);
+      ctx.textAlign = 'right';
+      ctx.fillText(playerRank, colRank, y);
+      ctx.textAlign = 'left';
+      ctx.fillText(playerFinalName.slice(0, 18), colName, y);
+      ctx.textAlign = 'right';
+      ctx.fillText(String(playerFinalScore).padStart(5, '0'), colScore, y);
+    }
+  }
+
+  ctx.fillStyle = C.gold + '44';
+  ctx.fillRect(60, H - 54, W - 120, 1);
+
+  if (Math.floor(Date.now() / 600) % 2 === 0) {
+    ctx.textAlign = 'center';
+    ctx.font = font(700, 13);
+    ctx.fillStyle = C.gold;
+    ctx.shadowColor = C.gold; ctx.shadowBlur = 10;
+    ctx.letterSpacing = '3px';
+    ctx.fillText(isMobile ? 'TIPPEN ZUM NEUSTART' : 'ENTER ZUM NEUSTART', W / 2, H - 22);
+    ctx.shadowBlur = 0; ctx.letterSpacing = '0px';
+  }
 }
 
 // ---- Loop ----
