@@ -313,15 +313,15 @@ function bgmPause() { bgm.pause(); }
 const keys = {};
 document.addEventListener('keydown', e => {
   keys[e.code] = true;
-  if (e.code === 'Space' && state === 'start') { startGame(); return; }
+  if (e.code === 'Space' && state === 'start') { bgmPlay(); startGame(); return; }
   if ((e.code === 'ArrowUp' || e.code === 'ArrowDown') && state === 'over') {
     gameOverSel = gameOverSel === 0 ? 1 : 0;
     e.preventDefault(); return;
   }
   if (e.code === 'Enter' && state === 'over') {
-    if (gameOverSel === 0) showNameInput(); else startGame(); return;
+    if (gameOverSel === 0) showNameInput(); else { bgmPlay(); startGame(); } return;
   }
-  if ((e.code === 'Enter' || e.code === 'Space') && state === 'leaderboard') { startGame(); return; }
+  if ((e.code === 'Enter' || e.code === 'Space') && state === 'leaderboard') { bgmPlay(); startGame(); return; }
   if (e.code === 'KeyP' && state === 'playing') { state = 'paused'; bgmPause(); }
   else if (e.code === 'KeyP' && state === 'paused') { state = 'playing'; bgmPlay(); }
   if (e.code === 'Space' && state !== 'nameInput') e.preventDefault();
@@ -373,13 +373,13 @@ canvas.addEventListener('touchstart', e => {
   for (const t of e.changedTouches) {
     const p = screenToCanvas(t.clientX, t.clientY);
 
-    if (state === 'start' || state === 'leaderboard') { startGame(); return; }
+    if (state === 'start' || state === 'leaderboard') { bgmPlay(); startGame(); return; }
     if (state === 'over') {
       for (let i = 0; i < 2; i++) {
         const itemY = gameOverMenuBaseY + 34 + i * 34;
         if (Math.abs(p.y - itemY) < 24) {
           gameOverSel = i;
-          if (i === 0) showNameInput(); else startGame();
+          if (i === 0) showNameInput(); else { bgmPlay(); startGame(); }
           return;
         }
       }
@@ -396,13 +396,13 @@ canvas.addEventListener('touchstart', e => {
     // Steuerzone (unterer Bereich inkl. etwas Puffer nach oben)
     if (p.y >= BTN_Y - 30) {
       if (p.x < JOYSTICK_SPLIT) {
-        fireTouchId = t.identifier; touchFiring = true;
-        if (chargeStart === null) chargeStart = performance.now();
-      } else {
         joystickTouchId = t.identifier;
         joystickActive  = true;
         joystickBase    = { x: p.x, y: p.y };
         joystickKnob    = { x: p.x, y: p.y };
+      } else {
+        fireTouchId = t.identifier; touchFiring = true;
+        if (chargeStart === null) chargeStart = performance.now();
       }
     }
   }
@@ -496,8 +496,9 @@ function startGame() {
   playerFinalName      = '';
   document.getElementById('nameOverlay').style.display = 'none';
   resetTouchState();
-  bgmPlay();
 }
+
+// Keyboard-Start braucht eigenen bgmPlay-Aufruf (Touch-Start hat ihn direkt im Handler)
 
 // ---- Collision ----
 function collides(a, b) {
@@ -1207,8 +1208,8 @@ function drawHUD() {
 function drawTouchButtons() {
   ctx.save();
 
-  // ---- Joystick ----
-  const bx = joystickActive ? joystickBase.x : JOYSTICK_SPLIT + (W - JOYSTICK_SPLIT) / 2;
+  // ---- Joystick (links) ----
+  const bx = joystickActive ? joystickBase.x : JOYSTICK_SPLIT / 2;
   const by = joystickActive ? joystickBase.y : BTN_Y + BTN_H / 2;
   const kx = joystickActive ? joystickKnob.x : bx;
   const ky = joystickActive ? joystickKnob.y : by;
@@ -1239,9 +1240,9 @@ function drawTouchButtons() {
   ctx.lineWidth   = 1.5;
   ctx.beginPath(); ctx.arc(kx, ky, 18, 0, Math.PI * 2); ctx.stroke();
 
-  // ---- Feuer-Button ---- (zentriert in der linken Zone)
-  const fw = Math.min(JOYSTICK_SPLIT - 30, 100);
-  const fx = (JOYSTICK_SPLIT - fw) / 2;
+  // ---- Feuer-Button (rechts) ----
+  const fw = Math.min(W - JOYSTICK_SPLIT - 30, 100);
+  const fx = JOYSTICK_SPLIT + (W - JOYSTICK_SPLIT - fw) / 2;
   const a  = touchFiring;
 
   ctx.globalAlpha = a ? 0.28 : 0.09;
