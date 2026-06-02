@@ -141,12 +141,14 @@ const vespaImg    = new Image();
 const florettImg  = new Image();
 const ks50Img     = new Image();
 const kaeferImg   = new Image();
+const bossImg     = new Image();
 const mapImg      = new Image();
 schwalbeImg.src = 'schwalbe.png';
 vespaImg.src    = 'vespa.png';
 florettImg.src  = 'florett.png';
 ks50Img.src     = 'ks50.png';
 kaeferImg.src   = 'kaefer.png';
+bossImg.src     = 'bockwurst.png';
 mapImg.src      = 'map.png';
 
 // ---- Minimap: Stadtkoordinaten als Bruchteil der Bildgrosse ----
@@ -233,6 +235,9 @@ let spawnInterval = 2400;
 let enemyBaseSpeed = 120;
 let diffTimer = 0;
 
+let boss = null;
+let bossDefeatedMsg = null;
+
 // ---- Level / Ortsschild ----
 const eastGermanCities = [
   'Ost-Berlin',
@@ -263,6 +268,13 @@ let powerupInterval = 6500;
 let speedBoostTimer   = 0;
 let akkuCount         = 0;
 let akkuTimer         = 0;
+
+// ---- Berliner Mauer ----
+let mauerActive   = false;
+let mauerTimer    = 0;
+let mauerHp       = 5;
+let mauerY           = 430;
+const MAUER_DURATION = 7000;
 
 // ---- Runden-Bonus ----
 let roundBonus   = null;
@@ -493,9 +505,14 @@ function startGame() {
   speedBoostTimer   = 0;
   akkuCount         = 0;
   akkuTimer         = 0;
+  mauerActive       = false;
+  mauerTimer        = 0;
+  mauerHp           = 5;
   eindringlingMessages = [];
   roundBonus           = null;
   elektroBonus         = null;
+  boss                 = null;
+  bossDefeatedMsg      = null;
   elektroCount         = 0;
   chargeStart          = null;
   leaderboardData      = [];
@@ -549,6 +566,8 @@ function spawnEnemy() {
   const margin = 30;
   const x = margin + Math.random() * (W - 2 * margin - def.w);
   const zigzag = def.type === 'ks50' ? { amp: 60, freq: 1.8, offset: Math.random() * Math.PI * 2 } : null;
+  const r = Math.floor((currentLevel - 1) / eastGermanCities.length);
+  const maxHits = def.type === 'kaefer' ? 5 * Math.pow(2, r) : def.hits;
   enemies.push({
     x, y: -def.h - 10,
     w: def.w, h: def.h,
@@ -556,11 +575,30 @@ function spawnEnemy() {
     type: def.type,
     img: def.img,
     points: def.points,
-    hitsLeft: def.hits,
+    hitsLeft: maxHits,
+    maxHits,
     startX: x,
     zigzag,
     age: 0,
   });
+}
+
+function spawnBoss(round) {
+  const bw = 192, bh = 132;
+  const startX = W / 2 - bw / 2;
+  const maxHits = 50 * round;
+  enemies = [];
+  boss = {
+    x: startX, y: -bh - 20,
+    w: bw, h: bh,
+    speed: 50,
+    hitsLeft: maxHits,
+    maxHits,
+    round,
+    startX,
+    age: 0,
+    points: 500 * round,
+  };
 }
 
 function spawnParticles(cx, cy, color) {
@@ -608,8 +646,7 @@ function update(ts) {
 
     if (cityIdx === 0 && currentLevel > 1) {
       const round = Math.floor((currentLevel - 1) / eastGermanCities.length);
-      player.lives = Math.min(player.lives + 1, 5);
-      roundBonus = { round, timer: 3200, totalTime: 3200 };
+      spawnBoss(round);
     }
   }
 
@@ -622,7 +659,9 @@ function update(ts) {
   if (powerupSpawnTimer >= powerupInterval) {
     powerupSpawnTimer = 0;
     const margin = 40;
-    const type = Math.random() < 0.5 ? 'mid50' : 'akku';
+    const type = mauerActive
+      ? (Math.random() < 0.5 ? 'mid50' : 'akku')
+      : (['mid50', 'akku', 'mid50', 'akku', 'mauer'])[Math.floor(Math.random() * 5)];
     const pw = 20, ph = 28;
     powerups.push({ x: margin + Math.random() * (W - 2 * margin - pw), y: -(ph + 10), w: pw, h: ph, type });
   }
@@ -632,6 +671,11 @@ function update(ts) {
     if (collides(p, player)) {
       if (p.type === 'mid50') {
         speedBoostTimer = 10000;
+      } else if (p.type === 'mauer') {
+        mauerActive = true;
+        mauerTimer  = MAUER_DURATION;
+        mauerHp     = 5;
+        mauerY      = p.y + p.h;
       } else {
         akkuCount++;
         akkuTimer = 10000;
@@ -650,6 +694,15 @@ function update(ts) {
   if (akkuTimer > 0) {
     akkuTimer -= dt * 1000;
     if (akkuTimer <= 0) { akkuTimer = 0; akkuCount = 0; }
+  }
+  if (mauerActive) {
+    mauerTimer -= dt * 1000;
+    if (mauerTimer <= 0 || mauerHp <= 0) {
+      mauerActive = false;
+      mauerTimer  = 0;
+      for (let i = 0; i < 14; i++)
+        spawnParticles(15 + i * 34, mauerY, '#999999');
+    }
   }
 
   eindringlingMessages = eindringlingMessages.filter(m => {
@@ -687,7 +740,7 @@ function update(ts) {
   bullets = bullets.filter(b => { b.y -= 580 * dt; return b.y + b.h > 0; });
 
   spawnTimer += dt * 1000;
-  if (spawnTimer >= spawnInterval) {
+  if (!boss && spawnTimer >= spawnInterval) {
     spawnTimer = 0;
     spawnEnemy();
   }
@@ -698,6 +751,9 @@ function update(ts) {
     if (e.zigzag) {
       e.x = e.startX + Math.sin(e.age * e.zigzag.freq + e.zigzag.offset) * e.zigzag.amp;
       e.x = Math.max(10, Math.min(W - e.w - 10, e.x));
+    }
+    if (mauerActive && e.y + e.h >= mauerY) {
+      e.y = mauerY - e.h + Math.sin(e.age * 12) * 1.2;
     }
     for (let i = bullets.length - 1; i >= 0; i--) {
       if (collides(bullets[i], e)) {
@@ -738,6 +794,51 @@ function update(ts) {
     }
     return true;
   });
+
+  if (boss) {
+    boss.age += dt;
+    boss.y += boss.speed * dt;
+    boss.x = boss.startX + Math.sin(boss.age * 0.7) * 150;
+    boss.x = Math.max(10, Math.min(W - boss.w - 10, boss.x));
+
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      if (collides(bullets[i], boss)) {
+        bullets.splice(i, 1);
+        boss.hitsLeft--;
+        spawnParticles(boss.x + boss.w / 2, boss.y + boss.h / 2, boss.hitsLeft > 0 ? C.gold : C.light);
+        if (boss.hitsLeft <= 0) {
+          score += boss.points;
+          for (let j = 0; j < 5; j++) {
+            spawnParticles(
+              boss.x + Math.random() * boss.w,
+              boss.y + Math.random() * boss.h,
+              [C.light, C.gold, '#ff4444'][j % 3]
+            );
+          }
+          player.lives = Math.min(player.lives + 1, 5);
+          roundBonus = { round: boss.round, timer: 3200, totalTime: 3200 };
+          bossDefeatedMsg = { timer: 3500, totalTime: 3500, round: boss.round, points: boss.points };
+          boss = null;
+        }
+        break;
+      }
+    }
+
+    if (boss && boss.y > H) {
+      loseLife();
+      loseLife();
+      boss = null;
+    }
+
+    if (boss && player.invincible <= 0 && collides(boss, player)) {
+      loseLife();
+    }
+  }
+
+  if (bossDefeatedMsg) {
+    bossDefeatedMsg.timer -= dt * 1000;
+    if (bossDefeatedMsg.timer <= 0) bossDefeatedMsg = null;
+  }
 
   if (player.invincible > 0) player.invincible -= dt * 1000;
 
@@ -806,13 +907,90 @@ function drawEnemy(e) {
     ctx.textBaseline = 'alphabetic';
   }
 
-  if (e.type === 'kaefer' && e.hitsLeft < 3 && !e.electrified) {
+  if (e.type === 'kaefer' && e.hitsLeft < e.maxHits && !e.electrified) {
     ctx.globalAlpha = 0.35 + 0.3 * Math.sin(Date.now() / 80);
     ctx.fillStyle = '#ff4444';
     ctx.fillRect(-e.w / 2, -e.h / 2, e.w, e.h);
     ctx.globalAlpha = 1;
   }
   ctx.restore();
+
+  if (e.type === 'kaefer' && e.maxHits > 1) {
+    const barW = e.w;
+    const barX = e.x;
+    const barY = e.y - 10;
+    const barH = 5;
+    const hpRatio = e.hitsLeft / e.maxHits;
+    ctx.fillStyle = '#111';
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.fillStyle = hpRatio > 0.5 ? '#44ff44' : hpRatio > 0.25 ? '#ffaa00' : '#ff4444';
+    ctx.fillRect(barX, barY, barW * hpRatio, barH);
+    ctx.strokeStyle = '#ffffff44';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barW, barH);
+  }
+}
+
+function drawBoss() {
+  if (!boss) return;
+  ctx.save();
+  const cx = boss.x + boss.w / 2;
+  const cy = boss.y + boss.h / 2;
+  ctx.translate(cx, cy);
+
+  ctx.shadowColor = '#ff2222';
+  ctx.shadowBlur = 20 + 10 * Math.sin(Date.now() / 200);
+  ctx.drawImage(bossImg, -boss.w / 2, -boss.h / 2, boss.w, boss.h);
+  ctx.shadowBlur = 0;
+
+  const dmgRatio = 1 - boss.hitsLeft / boss.maxHits;
+  if (dmgRatio > 0) {
+    ctx.globalAlpha = 0.15 + 0.2 * dmgRatio + 0.15 * Math.sin(Date.now() / 80);
+    ctx.fillStyle = '#ff4444';
+    ctx.fillRect(-boss.w / 2, -boss.h / 2, boss.w, boss.h);
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+
+  const barW = boss.w + 20;
+  const barX = boss.x - 10;
+  const barY = boss.y - 18;
+  const barH = 9;
+  ctx.fillStyle = '#111';
+  ctx.fillRect(barX, barY, barW, barH);
+  const hpRatio = boss.hitsLeft / boss.maxHits;
+  const hpCol = hpRatio > 0.5 ? '#44ff44' : hpRatio > 0.25 ? '#ffaa00' : '#ff4444';
+  ctx.fillStyle = hpCol;
+  ctx.fillRect(barX, barY, barW * hpRatio, barH);
+  ctx.strokeStyle = '#ffffff55';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(barX, barY, barW, barH);
+
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 11px Inter, Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#000';
+  ctx.shadowBlur = 4;
+  ctx.fillText(`ENDBOSS  RUNDE ${boss.round}`, boss.x + boss.w / 2, barY - 4);
+  ctx.shadowBlur = 0;
+}
+
+function drawBossDefeatedMsg() {
+  if (!bossDefeatedMsg) return;
+  const progress = bossDefeatedMsg.timer / bossDefeatedMsg.totalTime;
+  ctx.globalAlpha = Math.min(1, progress * 3);
+  ctx.font = 'bold 22px Inter, Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = C.gold;
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = C.gold;
+  ctx.fillText('ENDBOSS BESIEGT!', W / 2, H / 2 - 18);
+  ctx.font = 'bold 15px Inter, Arial, sans-serif';
+  ctx.fillStyle = '#fff';
+  ctx.shadowColor = '#000';
+  ctx.fillText(`+${bossDefeatedMsg.points} Punkte`, W / 2, H / 2 + 12);
+  ctx.shadowBlur = 0;
+  ctx.globalAlpha = 1;
 }
 
 function drawBolt(x, y, w, h, electro) {
@@ -867,8 +1045,43 @@ function drawOrtsschild(x, y, city, sw) {
 
 // ---- Power-up zeichnen ----
 function drawPowerup(p) {
-  if (p.type === 'mid50') drawMotorPowerup(p);
-  else                    drawBatteryPowerup(p);
+  if (p.type === 'mid50')   drawMotorPowerup(p);
+  else if (p.type === 'mauer') drawMauerPowerup(p);
+  else                      drawBatteryPowerup(p);
+}
+
+function drawMauerPowerup(p) {
+  const { x, y, w, h } = p;
+  const col = '#b0a090';
+  ctx.save();
+
+  ctx.shadowColor = col; ctx.shadowBlur = 8;
+  ctx.fillStyle = '#2a2018';
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, 3); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Ziegelstein-Muster (3x4 Blöcke)
+  const bw = (w - 4) / 2, bh = (h - 5) / 4;
+  for (let row = 0; row < 4; row++) {
+    const offset = (row % 2) * (bw / 2);
+    for (let col2 = -1; col2 <= 2; col2++) {
+      const bx = x + 2 + col2 * bw + offset;
+      const by = y + 2 + row * bh;
+      if (bx + bw <= x || bx >= x + w) continue;
+      const cx2 = Math.max(bx, x + 1);
+      const cw = Math.min(bx + bw - 1, x + w - 1) - cx2;
+      if (cw <= 0) continue;
+      ctx.fillStyle = '#8a7a6a';
+      ctx.fillRect(cx2, by + 1, cw, bh - 2);
+    }
+  }
+
+  ctx.shadowColor = col; ctx.shadowBlur = 6;
+  ctx.strokeStyle = col; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, 3); ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.restore();
 }
 
 function drawBatteryPowerup(p) {
@@ -972,6 +1185,70 @@ function drawMotorPowerup(p) {
   ctx.fillStyle   = col;
   ctx.beginPath(); ctx.arc(cx, cy, 2, 0, Math.PI * 2); ctx.fill();
   ctx.shadowBlur = 0;
+
+  ctx.restore();
+}
+
+// ---- Berliner Mauer ----
+function drawMauer() {
+  if (!mauerActive) return;
+  const wallH  = 18;
+  const wallY  = mauerY - wallH;
+  const timerFrac = mauerTimer / MAUER_DURATION;
+  const shakeX = timerFrac < 0.25 ? Math.sin(Date.now() / 60) * 3 : 0;
+
+  ctx.save();
+  ctx.translate(shakeX, 0);
+
+  // Schatten unter der Mauer
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(-4, wallY + wallH - 2, W + 8, 5);
+
+  // Hintergrund der Mauer
+  ctx.fillStyle = '#6a5a4a';
+  ctx.fillRect(0, wallY, W, wallH);
+
+  // Ziegelstein-Reihen
+  const bw = 38, bh = 8;
+  for (let row = 0; row < 2; row++) {
+    const offset = (row % 2) * (bw / 2);
+    const by = wallY + 1 + row * (bh + 1);
+    for (let col = -1; col <= Math.ceil(W / bw) + 1; col++) {
+      const bx = col * bw + offset;
+      ctx.fillStyle = row % 2 === 0 ? '#9a8a76' : '#907e6c';
+      ctx.fillRect(bx + 1, by, bw - 2, bh);
+    }
+  }
+
+  // Fugen (dunkel)
+  ctx.fillStyle = '#3a2e22';
+  ctx.fillRect(0, wallY + bh + 2, W, 1);
+
+  // Risse wenn Timer fast abläuft
+  if (timerFrac < 0.35) {
+    ctx.strokeStyle = '#2a1e12';
+    ctx.lineWidth   = 1;
+    ctx.globalAlpha = 1 - timerFrac / 0.35;
+    const crackPositions = [60, 160, 280, 380, 440];
+    const numCracks = Math.ceil((1 - timerFrac / 0.35) * crackPositions.length);
+    crackPositions.slice(0, numCracks).forEach(cx => {
+      ctx.beginPath();
+      ctx.moveTo(cx, wallY);
+      ctx.lineTo(cx + 4, wallY + 7);
+      ctx.lineTo(cx + 1, wallY + wallH);
+      ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  // Timer-Balken oben auf der Mauer
+  const barW = W * timerFrac;
+  ctx.fillStyle = timerFrac > 0.4 ? '#c0a060' : '#c05030';
+  ctx.fillRect(0, wallY, barW, 2);
+
+  // Oberkante-Highlight
+  ctx.fillStyle = '#b8a88055';
+  ctx.fillRect(0, wallY, W, 2);
 
   ctx.restore();
 }
@@ -1210,6 +1487,18 @@ function drawHUD() {
     ctx.font = font(700, 11); ctx.textAlign = 'left';
     ctx.letterSpacing = '0px';
     ctx.fillText('⚡x' + (akkuCount + 1) + '  ' + secs + 's', pillX + 7, pillY + 16);
+    pillX += 96;
+  }
+  if (mauerActive) {
+    const secs = Math.ceil(mauerTimer / 1000);
+    const col  = mauerTimer / MAUER_DURATION < 0.25 ? '#e05030' : '#b0a090';
+    ctx.fillStyle   = 'rgba(176,160,144,0.18)';
+    ctx.strokeStyle = col; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(pillX, pillY, 90, 22, 4); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.font = font(700, 11); ctx.textAlign = 'left';
+    ctx.letterSpacing = '0px';
+    ctx.fillText('MAUER  ' + secs + 's', pillX + 7, pillY + 16);
   }
 }
 
@@ -1440,6 +1729,11 @@ function drawPauseOverlay() {
   ctx.fillText('Extra Schuss für 10 Sek.', RX, rowY);
   y += 28;
 
+  rowY = y;
+  drawMauerPowerup({ x: iconCX - BIW / 2, y: rowY - IH / 2, w: BIW, h: IH, type: 'mauer' });
+  ctx.fillText('Mauer stoppt Gegner für 7 Sek.', RX, rowY);
+  y += 28;
+
   ctx.textBaseline = 'alphabetic';
   y += 8; divider(y); y += 20;
 
@@ -1585,7 +1879,9 @@ function draw() {
   drawBackground();
   drawMinimap();
   if (sign.active) drawOrtsschild(sign.x, sign.y, sign.city, sign.sw);
+  drawMauer();
   enemies.forEach(e => drawEnemy(e));
+  drawBoss();
   bullets.forEach(b => drawBolt(b.x, b.y, b.w, b.h, b.electro));
   powerups.forEach(p => drawPowerup(p));
 
@@ -1602,6 +1898,7 @@ function draw() {
   eindringlingMessages.forEach(m => drawEindringling(m));
   if (roundBonus)   drawRoundBonus(roundBonus);
   if (elektroBonus) drawElektroBonus(elektroBonus);
+  drawBossDefeatedMsg();
   drawHUD();
   if (isMobile && state === 'playing') drawTouchButtons();
   if (state === 'paused') drawPauseOverlay();
