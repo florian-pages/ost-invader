@@ -1,6 +1,6 @@
 # Ost Invader
 
-**Jetzt spielen: [flow2605.github.io/ost-invader](https://flow2605.github.io/ost-invader)**
+**Jetzt spielen: [florian-pages.github.io/ost-invader](https://florian-pages.github.io/ost-invader/)**
 
 Ein Browser-Arcade-Game im Space-Invaders Style. Fully Vibecoded. 
 
