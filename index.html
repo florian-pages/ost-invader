@@ -762,10 +762,18 @@ function update(ts) {
       if (collides(bullets[i], e)) {
         const isElectro = bullets[i].electro;
         bullets.splice(i, 1);
-        if (isElectro && !e.electrified) {
-          e.electrified = true;
+        if (isElectro) {
+          const bonus = e.points * 3;
+          score += bonus;
+          levelScore += bonus;
+          elektroCount++;
           spawnParticles(e.x + e.w / 2, e.y + e.h / 2, '#4dd9ff');
-          return true;
+          eindringlingMessages.push({ x: e.x + e.w / 2, timer: 1800, type: e.type, elektro: true, bonus });
+          if (elektroCount % 5 === 0) {
+            player.lives = Math.min(player.lives + 1, 5);
+            elektroBonus = { count: elektroCount, timer: 3200, totalTime: 3200 };
+          }
+          return false;
         }
         e.hitsLeft--;
         spawnParticles(e.x + e.w / 2, e.y + e.h / 2, e.hitsLeft > 0 ? C.gold : C.light);
