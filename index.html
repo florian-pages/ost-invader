@@ -194,6 +194,7 @@ const C = {
 // ---- State ----
 let state = 'start'; // 'start' | 'playing' | 'paused' | 'over' | 'nameInput' | 'leaderboard'
 let score = 0;
+let levelScore = 0;
 let highScore = 0;
 
 const player = {
@@ -481,6 +482,7 @@ canvas.addEventListener('touchend', () => {
 function startGame() {
   state = 'playing';
   score = 0;
+  levelScore = 0;
   player.x = W / 2 - player.w / 2;
   player.y = getPlayerStartY();
   player.lives  = 3;
@@ -634,7 +636,7 @@ function update(ts) {
   }
 
   // ---- Level check ----
-  const newLevel = Math.floor(score / 50) + 1;
+  const newLevel = Math.floor(levelScore / 50) + 1;
   if (newLevel > currentLevel) {
     currentLevel = newLevel;
     const cityIdx = (currentLevel - 1) % eastGermanCities.length;
@@ -676,6 +678,7 @@ function update(ts) {
         mauerTimer  = MAUER_DURATION;
         mauerHp     = 5;
         mauerY      = p.y + p.h;
+        enemies.forEach(e => { if (e.y + e.h >= mauerY) e.bypassMauer = true; });
       } else {
         akkuCount++;
         akkuTimer = 10000;
@@ -752,7 +755,7 @@ function update(ts) {
       e.x = e.startX + Math.sin(e.age * e.zigzag.freq + e.zigzag.offset) * e.zigzag.amp;
       e.x = Math.max(10, Math.min(W - e.w - 10, e.x));
     }
-    if (mauerActive && e.y + e.h >= mauerY) {
+    if (mauerActive && !e.bypassMauer && e.y + e.h >= mauerY) {
       e.y = mauerY - e.h + Math.sin(e.age * 12) * 1.2;
     }
     for (let i = bullets.length - 1; i >= 0; i--) {
@@ -768,6 +771,7 @@ function update(ts) {
         spawnParticles(e.x + e.w / 2, e.y + e.h / 2, e.hitsLeft > 0 ? C.gold : C.light);
         if (e.hitsLeft > 0) return true;
         score += e.points;
+        levelScore += e.points;
         return false;
       }
     }
@@ -775,6 +779,7 @@ function update(ts) {
       if (e.electrified) {
         const bonus = e.points * 3;
         score += bonus;
+        levelScore += bonus;
         elektroCount++;
         eindringlingMessages.push({ x: e.x + e.w / 2, timer: 1800, type: e.type, elektro: true, bonus });
         if (elektroCount % 5 === 0) {
